@@ -1,16 +1,29 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import configparser
+import sys
 import time
 import json
+import logging
+import configparser
 from reminder import Reminder
+
 import requests
 
+logging.basicConfig(stream=sys.stderr, format='%(asctime)s [%(name)s:%(levelname)s] %(message)s',
+                    level=logging.DEBUG if sys.argv[-1] == '-v' else logging.INFO)
+
 rmd = Reminder()
+
 HSession = requests.Session()
-help_text = '''输入 /set 小时:分钟 重复次数 短语 来设置一个提醒
- 例如： /set 08:30 7 收远征
- 将会在接下来的七天中每天8:30分向你发送提醒消息'''
+
+help_text = '''输入 /add 小时:分钟 重复天数 待办事项 来设置一个提醒
+ 例如： /add 08:30 7 收远征
+ /clear 可以清除记录
+ /list 可以列出已设置的记录'''
+add_successd_text = '''添加成功！在接下来的%s天里，每天%s将会提醒你%s'''
+clear_successd_text = '''已清除全部记录'''
+no_data_text = '''无可奉告'''
+list_text = '''在接下来的%s天里，每天%s将会提醒你%s'''
 command_err_text = '''命令有误，输入 /help 获取帮助'''
 
 
@@ -71,7 +84,6 @@ class TelegramBotClient:
         current_time = time.strftime("%H:%M", time.localtime())
         while self.run:
             if current_time != time.strftime("%H:%M", time.localtime()):
-                print(time.strftime("%H:%M", time.localtime()))
                 current_time = time.strftime("%H:%M", time.localtime())
                 for chat_id, rmd_msg in rmd.check(current_time):
                     self.sendMessage(chat_id=chat_id, text=rmd_msg,
@@ -82,7 +94,7 @@ class TelegramBotClient:
                 if ex.parameters and 'retry_after' in ex.parameters:
                     time.sleep(ex.parameters['retry_after'])
             except Exception:
-                print('Get updates failed.')
+                logging.exception('Get updates failed.')
                 continue
             if not updates:
                 continue
@@ -106,20 +118,36 @@ def message_handler(cli, msg):
     elif cmd == 'help':
         cli.sendMessage(chat_id=msg['chat']['id'], text=help_text,
                         parse_mode='Markdown', disable_web_page_preview=True)
-    elif cmd == 'set' and not expr:
-        cli.sendMessage(chat_id=msg['chat']['id'], text=command_err_text,
-                        parse_mode='Markdown', disable_web_page_preview=True)
-    elif cmd == 'set':
+    elif cmd == 'add':
         try:
             rmd_time, rmd_times, rmd_msg = expr.split()
+            rmd_time = time.strftime("%H:%M", time.strptime(rmd_time, "%H:%M"))
             uid = msg['chat']['id']
-            rmd.add(uid, time.strftime("%H:%M", time.strptime(rmd_time, "%H:%M")), int(rmd_times), rmd_msg)
+            rmd.add(uid, rmd_time, int(rmd_times), rmd_msg)
+            cli.sendMessage(chat_id=msg['chat']['id'], text=add_successd_text % (
+                rmd_times, rmd_time, rmd_msg),
+                            parse_mode='Markdown', disable_web_page_preview=True)
+            logging.info(' '.join(('New set', str(uid), rmd_time, rmd_times, rmd_msg)))
         except:
             cli.sendMessage(chat_id=msg['chat']['id'], text=command_err_text,
                             parse_mode='Markdown', disable_web_page_preview=True)
-    # TODO
-    elif cmd == 'remove':
-        return
+    elif cmd == 'clear':
+        uid = msg['chat']['id']
+        rmd.clear(uid)
+        cli.sendMessage(chat_id=msg['chat']['id'], text=clear_successd_text,
+                        parse_mode='Markdown', disable_web_page_preview=True)
+        logging.info(' '.join((str(uid), 'clear')))
+    elif cmd == 'list':
+        uid = msg['chat']['id']
+        user_list = rmd.list(uid)
+        if user_list is None or user_list == []:
+            cli.sendMessage(chat_id=msg['chat']['id'], text=no_data_text,
+                            parse_mode='Markdown', disable_web_page_preview=True)
+        else:
+            for rmd_time, rmd_times, rmd_msg in user_list:
+                cli.sendMessage(chat_id=msg['chat']['id'], text=list_text % (
+                    rmd_times, rmd_time, rmd_msg),
+                                parse_mode='Markdown', disable_web_page_preview=True)
     elif cmd == 'start':
         return
     else:
@@ -137,6 +165,7 @@ def main():
     config = load_config('config.ini')
     botcli = TelegramBotClient(
         config['Bot']['apitoken'], config['Bot'].get('username'))
+    logging.info('Satellite launched.')
     botcli.serve(message=message_handler)
 
 

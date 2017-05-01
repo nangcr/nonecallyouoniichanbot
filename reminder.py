@@ -29,9 +29,16 @@ class Reminder:
             self.rmd_list[uid].append([rmd_time, rmd_times, rmd_msg])
         self.write()
 
-    # TODO
-    def remove(self, number):
-        return True
+    def clear(self, uid):
+        if uid in self.rmd_list:
+            self.rmd_list.pop(uid)
+            self.write()
+
+    def list(self, uid):
+        if uid in self.rmd_list:
+            return self.rmd_list[uid]
+        else:
+            return None
 
     def check(self, current_time):
         return_list = []
@@ -40,7 +47,7 @@ class Reminder:
                 if record[0] == current_time:
                     return_list.append([uid, record[2]])
                     record[1] = record[1] - 1
+                    if record[1] <= 0:
+                        self.rmd_list[uid].remove(record)
                     self.write()
-                    if record[1] == 0:
-                        self.remove(0)
         return return_list
